@@ -779,7 +779,6 @@ int main(int argc, char* argv[]){
    else
       TIME = DEFAULT_TIME;
 
-
    // Get rank and size
    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
    MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -799,7 +798,7 @@ int main(int argc, char* argv[]){
 
    // Number of bodies each processor is responsible for
    part_size = N / size;
-
+   N = part_size * size;
 
    // Determine index into array structures for each process
    pindex = rank * part_size;
