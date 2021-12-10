@@ -67,7 +67,7 @@ typedef struct Cell  {
 } Cell;
 
 
-Position* position;   // Current positions for all particles
+Position* position[2];   // Current positions for all particles
 Velocity* ivelocity;  // Initial velocity for all particles
 Velocity* velocity;   // Velocity of particles in current processor
 double* mass;         // Mass of each particle
@@ -88,7 +88,7 @@ int size;            // Number of processes in the group
 int part_size;       // Number of particles each processor is responsible for
 int pindex;          // The pindex points to the slot in the vectors/arrays that contains 
                      // data concerning the current processor, i.e pindex = (rank * part_size)
-
+int pbuffer; // index to indicate which position buffer is being used
 
 int name_length;                    // Length of processor name
 char name[MPI_MAX_PROCESSOR_NAME];  // Buffer to hold processor name
@@ -129,13 +129,15 @@ void initialize_space() {
    for (i = 0; i < N; i++) {
       mass[i] = MASS_OF_UNKNOWN * generate_rand();
       radius[i] = RBOUND * generate_rand();
-      position[i].px = generate_rand() * ixbound;
-      position[i].py = generate_rand() * iybound;
-      position[i].pz = generate_rand() * izbound;
+      position[0][i].px = generate_rand() * ixbound;
+      position[0][i].py = generate_rand() * iybound;
+      position[0][i].pz = generate_rand() * izbound;
       ivelocity[i].vx = generate_rand_ex();
       ivelocity[i].vy = generate_rand_ex();
       ivelocity[i].vz = generate_rand_ex();; 
    }
+
+   pbuffer = 0;
 }
 
 
@@ -145,9 +147,9 @@ void initialize_space() {
  */
 int check_collision(int index1, int index2) {
 
-   if (pow((position[index1].px - position[index2].px), 2.0) + 
-       pow((position[index1].py - position[index2].py), 2.0) +
-       pow((position[index1].pz - position[index2].py), 2.0) <
+   if (pow((position[pbuffer][index1].px - position[pbuffer][index2].px), 2.0) + 
+       pow((position[pbuffer][index1].py - position[pbuffer][index2].py), 2.0) +
+       pow((position[pbuffer][index1].pz - position[pbuffer][index2].py), 2.0) <
        pow((radius[index1] + radius[index2]), 2.0)) {
        
        // Collision detected
@@ -184,7 +186,7 @@ void reinitialize_radius() {
       for (j = i + 1; j < N; j++) {
 
          if (check_collision(i, j)) {
-            double d = compute_distance(position[i], position[j]);
+            double d = compute_distance(position[pbuffer][i], position[pbuffer][j]);
             radius[i] = radius[j] = d/2.0;
          }
       }
@@ -212,16 +214,16 @@ void compute_force(){
          if (j == (i + pindex)) continue; // avoid computation for 
                                           // same bodies
 
-         double d = compute_distance(position[i + pindex], position[j]);
+         double d = compute_distance(position[pbuffer][i + pindex], position[pbuffer][j]);
 
          // Compute grativational force according to Newtonian's law
          double f = (G * (mass[i + pindex] * mass[j]) / 
                          (pow(d, 2.0)));
 
          // Resolve forces in each direction
-         force[i].fx += f * ((position[j].px - position[i + pindex].px) / d);
-         force[i].fy += f * ((position[j].py - position[i + pindex].py) / d);
-         force[i].fz += f * ((position[j].pz - position[i + pindex].pz) / d);
+         force[i].fx += f * ((position[pbuffer][j].px - position[pbuffer][i + pindex].px) / d);
+         force[i].fy += f * ((position[pbuffer][j].py - position[pbuffer][i + pindex].py) / d);
+         force[i].fz += f * ((position[pbuffer][j].pz - position[pbuffer][i + pindex].pz) / d);
       }
    }
 }
@@ -247,19 +249,19 @@ void compute_velocity(){
 void compute_positions(){
    int i;
    for (i = 0; i < part_size; i++) {
-      position[i + pindex].px += velocity[i].vx * DELTAT;
-      position[i + pindex].py += velocity[i].vy * DELTAT;
-      position[i + pindex].pz += velocity[i].vz * DELTAT;
+      position[pbuffer][i + pindex].px += velocity[i].vx * DELTAT;
+      position[pbuffer][i + pindex].py += velocity[i].vy * DELTAT;
+      position[pbuffer][i + pindex].pz += velocity[i].vz * DELTAT;
 
       // Check if particles attempt to cross boundary      
-      if ((position[i + pindex].px + radius[i + pindex]) >= XBOUND ||
-          (position[i + pindex].px - radius[i + pindex]) <= 0)
+      if ((position[pbuffer][i + pindex].px + radius[i + pindex]) >= XBOUND ||
+          (position[pbuffer][i + pindex].px - radius[i + pindex]) <= 0)
          velocity[i].vx *= -1;
-      else if ((position[i + pindex].py + radius[i + pindex] >= YBOUND) || 
-               (position[i + pindex].py - radius[i + pindex]) <= 0)
+      else if ((position[pbuffer][i + pindex].py + radius[i + pindex] >= YBOUND) || 
+               (position[pbuffer][i + pindex].py - radius[i + pindex]) <= 0)
          velocity[i].vy *= -1;
-      else if ((position[i + pindex].pz + radius[i + pindex]) >= ZBOUND || 
-               (position[i + pindex].pz - radius[i + pindex]) <= 0)
+      else if ((position[pbuffer][i + pindex].pz + radius[i + pindex]) >= ZBOUND || 
+               (position[pbuffer][i + pindex].pz - radius[i + pindex]) <= 0)
          velocity[i].vz *= -1;      
    }
 }
@@ -358,29 +360,29 @@ void BH_generate_subcells(Cell* cell) {
 int BH_locate_subcell(Cell* cell, int index) {
 
    // Determine which subcell to add the body to
-   if (position[index].px > cell->subcells[6]->x){
-      if (position[index].py > cell->subcells[6]->y){
-         if (position[index].pz > cell->subcells[6]->z)
+   if (position[pbuffer][index].px > cell->subcells[6]->x){
+      if (position[pbuffer][index].py > cell->subcells[6]->y){
+         if (position[pbuffer][index].pz > cell->subcells[6]->z)
             return 6;
          else
             return 5;
       }
       else{
-         if (position[index].pz > cell->subcells[6]->z)
+         if (position[pbuffer][index].pz > cell->subcells[6]->z)
             return 2;
          else
             return 1;
       }
    }
    else{
-      if (position[index].py > cell->subcells[6]->y){
-         if (position[index].pz > cell->subcells[6]->z)
+      if (position[pbuffer][index].py > cell->subcells[6]->y){
+         if (position[pbuffer][index].pz > cell->subcells[6]->z)
             return 7;
          else
             return 4;
       }
       else{
-         if (position[index].pz > cell->subcells[6]->z)
+         if (position[pbuffer][index].pz > cell->subcells[6]->z)
             return 3;
          else
             return 0;
@@ -469,9 +471,9 @@ Cell* BH_compute_cell_properties(Cell* cell){
          Cell* temp = BH_compute_cell_properties(cell->subcells[i]);
          if (temp != NULL) {
             cell->mass += temp->mass;
-            tx += position[temp->index].px * temp->mass;
-            ty += position[temp->index].py * temp->mass;
-            tz += position[temp->index].pz * temp->mass;            
+            tx += position[pbuffer][temp->index].px * temp->mass;
+            ty += position[pbuffer][temp->index].py * temp->mass;
+            tz += position[pbuffer][temp->index].pz * temp->mass;            
          }
       }
       
@@ -492,16 +494,16 @@ Cell* BH_compute_cell_properties(Cell* cell){
  *
  */
 void BH_compute_force_from_cell(Cell* cell, int index) {
-   double d = compute_distance(position[index], position[cell->index]);
+   double d = compute_distance(position[pbuffer][index], position[pbuffer][cell->index]);
 
    // Compute grativational force according to Newtonian's law
    double f = (G * (mass[index] * mass[cell->index]) / 
                    (pow(d, 2.0)));
 
    // Resolve forces in each direction
-   force[index - pindex].fx += f * ((position[cell->index].px - position[index].px) / d);
-   force[index - pindex].fy += f * ((position[cell->index].py - position[index].py) / d);
-   force[index - pindex].fz += f * ((position[cell->index].pz - position[index].pz) / d);      
+   force[index - pindex].fx += f * ((position[pbuffer][cell->index].px - position[pbuffer][index].px) / d);
+   force[index - pindex].fy += f * ((position[pbuffer][cell->index].py - position[pbuffer][index].py) / d);
+   force[index - pindex].fz += f * ((position[pbuffer][cell->index].pz - position[pbuffer][index].pz) / d);      
 }
 
 
@@ -518,7 +520,7 @@ void BH_compute_force_from_octtree(Cell* cell, int index) {
       }
    }
    else {
-      double d = compute_distance(position[index], position[cell->index]);
+      double d = compute_distance(position[pbuffer][index], position[pbuffer][cell->index]);
       
       if (THETA > (cell->width / d)){ 
          // Use approximation
@@ -577,8 +579,8 @@ void BH_print_octtree_ex(Cell* cell, int level, int cell_no) {
    if (cell->no_subcells == 0 && cell->index != -1) {
       BH_print_spaces(level);
       printf("position[%d] = %.2f, %.2f, %.2f; cell-location = %.2f, %.2f, %.2f, mass = %.2f;\n",
-              cell->index, position[cell->index].px, position[cell->index].py, 
-              position[cell->index].pz, cell->x, cell->y, cell->z, mass[cell->index]);
+              cell->index, position[pbuffer][cell->index].px, position[pbuffer][cell->index].py, 
+              position[pbuffer][cell->index].pz, cell->x, cell->y, cell->z, mass[cell->index]);
    }
    else {
       printf("Total mass = %.2f\n", level, cell->mass);
@@ -662,7 +664,7 @@ void print_ivelocity(){
 void print_position(){
    int i;
    for (i = 0; i < N; i++)
-      printf("Rank=%d, px=%.2f, py=%.2f, pz=%.2f\n", rank, position[i].px, position[i].py, position[i].pz);
+      printf("Rank=%d, px=%.2f, py=%.2f, pz=%.2f\n", rank, position[pbuffer][i].px, position[pbuffer][i].py, position[pbuffer][i].pz);
    printf("\n");
 }
 
@@ -678,7 +680,7 @@ void print_space() {
    printf("\n\n Space with %d bodies \n", N);
    for (i = 0; i < N; i++) {
       printf("bodies%d: mass = %.2f, px=%.2f, py=%.2f, pz=%.2f, vx=%.4f, vy=%.4f, vz=%.4f\n", 
-             i, mass[i], position[i].px, position[i].py, position[i].pz, velocity[i].vx, 
+             i, mass[i], position[pbuffer][i].px, position[pbuffer][i].py, position[pbuffer][i].pz, velocity[i].vx, 
              velocity[i].vy, velocity[i].vz);
    }
 }
@@ -701,8 +703,8 @@ void write_positions() {
 
    int i;
    for (i = 0; i < N; i++) {
-       fprintf(file, "px=%f, py=%f, pz=%f\n", position[i].px, position[i].py, 
-               position[i].pz);
+       fprintf(file, "px=%f, py=%f, pz=%f\n", position[pbuffer][i].px, position[pbuffer][i].py, 
+               position[pbuffer][i].pz);
    }
 
    fclose(file);
@@ -734,7 +736,7 @@ void run_simulation(){
 
    // Broadcast mass and position to all members in the group
    MPI_Bcast(mass, N, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-   MPI_Bcast(position, N, MPI_POSITION, 0, MPI_COMM_WORLD);
+   MPI_Bcast(position[pbuffer], N, MPI_POSITION, 0, MPI_COMM_WORLD);
    MPI_Scatter(ivelocity, part_size, MPI_VELOCITY, velocity, part_size, MPI_VELOCITY, 0, MPI_COMM_WORLD);
 
 
@@ -752,12 +754,13 @@ void run_simulation(){
 
       compute_velocity();
       compute_positions();
-      MPI_Allgather(position + (rank * part_size), part_size, MPI_POSITION, 
-                    position, part_size, MPI_POSITION, MPI_COMM_WORLD); 
+      MPI_Allgather(position[pbuffer] + (rank * part_size), part_size, MPI_POSITION, 
+                    position[pbuffer ^ 1], part_size, MPI_POSITION, MPI_COMM_WORLD); 
+      pbuffer = pbuffer ^ 1;
    }
 
-   if (rank == 0)
-      write_positions();
+   // if (rank == 0)
+   //    write_positions();
 
 }
 
@@ -807,7 +810,8 @@ int main(int argc, char* argv[]){
    // Allocate memory for mass, disance, velocity and force arrays
    mass = (double *) malloc(N * sizeof(double));
    radius = (double *) malloc(N * sizeof(double));
-   position = (Position *) malloc(N * sizeof(Position));
+   position[0] = (Position *) malloc(N * sizeof(Position));
+   position[1] = (Position *) malloc(N * sizeof(Position));
    ivelocity = (Velocity *) malloc(N * sizeof(Velocity));
    velocity = (Velocity *) malloc(part_size * sizeof(Velocity));
    force = (Force *) malloc(part_size * sizeof(Force));
@@ -826,7 +830,13 @@ int main(int argc, char* argv[]){
    // Run the N-body simulation
    run_simulation();
 
-
+   free(mass);
+   free(radius);
+   free(position[0]);
+   free(position[1]);
+   free(ivelocity);
+   free(velocity);
+   free(force);
    // Terminate MPI execution env.
    MPI_Finalize();
 
