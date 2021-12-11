@@ -837,6 +837,9 @@ int main(int argc, char* argv[]){
    free(ivelocity);
    free(velocity);
    free(force);
+
+   MPI_Type_free(&MPI_POSITION);
+   MPI_Type_free(&MPI_VELOCITY);
    // Terminate MPI execution env.
    MPI_Finalize();
 
