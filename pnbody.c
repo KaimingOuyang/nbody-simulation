@@ -742,6 +742,8 @@ void run_simulation(){
 
    int i;
 
+   MPI_Barrier(MPI_COMM_WORLD);
+   double time = MPI_Wtime();
    for (i = 0; i < TIME; i++) {
       BH_generate_octtree();
       BH_compute_cell_properties(root_cell);
@@ -759,6 +761,12 @@ void run_simulation(){
       pbuffer = pbuffer ^ 1;
    }
 
+   time = MPI_Wtime() - time;
+   double max_time;
+   MPI_Reduce(&time, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+   if (rank == 0) {
+      printf("%d %lf %lf\n", N, max_time * 1e3, max_time / TIME * 1e3);
+   }
    // if (rank == 0)
    //    write_positions();
 
