@@ -583,7 +583,7 @@ void BH_print_octtree_ex(Cell* cell, int level, int cell_no) {
               position[pbuffer][cell->index].pz, cell->x, cell->y, cell->z, mass[cell->index]);
    }
    else {
-      printf("Total mass = %.2f\n", level, cell->mass);
+      printf("level = %d, Total mass = %.2f\n", level, cell->mass);
    }   
 
    
@@ -729,9 +729,9 @@ void init_velocity(){
  */
 void run_simulation(){
 
-   if (rank == 0)
-      printf("\nRunning simulation for %d bodies with %d iterations, and DELTAT = %f..\n\n", 
-              N, TIME, DELTAT);
+   // if (rank == 0)
+   //    printf("\nRunning simulation for %d bodies with %d iterations, and DELTAT = %f..\n\n", 
+   //            N, TIME, DELTAT);
    
 
    // Broadcast mass and position to all members in the group
@@ -744,6 +744,7 @@ void run_simulation(){
 
    MPI_Barrier(MPI_COMM_WORLD);
    double time = MPI_Wtime();
+   double allgather_time = 0.0;
    for (i = 0; i < TIME; i++) {
       BH_generate_octtree();
       BH_compute_cell_properties(root_cell);
@@ -756,16 +757,23 @@ void run_simulation(){
 
       compute_velocity();
       compute_positions();
+      allgather_time -= MPI_Wtime();
       MPI_Allgather(position[pbuffer] + (rank * part_size), part_size, MPI_POSITION, 
                     position[pbuffer ^ 1], part_size, MPI_POSITION, MPI_COMM_WORLD); 
+      allgather_time += MPI_Wtime();
       pbuffer = pbuffer ^ 1;
    }
 
    time = MPI_Wtime() - time;
-   double max_time;
+   double max_time, sum_allgather;
+   
    MPI_Reduce(&time, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+   MPI_Reduce(&allgather_time, &sum_allgather, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+   
    if (rank == 0) {
-      printf("%d %lf %lf\n", N, max_time * 1e3, max_time / TIME * 1e3);
+      int size;
+      MPI_Comm_size(MPI_COMM_WORLD, &size);
+      printf("%d %lf %lf\n", size / 18, max_time / TIME * 1e3, sum_allgather / size / TIME * 1e3);
    }
    // if (rank == 0)
    //    write_positions();
@@ -781,12 +789,12 @@ int main(int argc, char* argv[]){
    
    // Initialise problem parameters
    if (argc >= 2) 
-      sscanf(argv[1], "%i%", &N);
+      N = atoi(argv[1]);
    else
       N = DEFAULT_N;
 
    if (argc >= 3)
-      sscanf(argv[2], "%i%", &TIME);   
+      TIME = atoi(argv[2]);
    else
       TIME = DEFAULT_TIME;
 
