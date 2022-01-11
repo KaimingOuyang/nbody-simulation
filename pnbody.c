@@ -125,13 +125,14 @@ void initialize_space() {
    double iybound = YBOUND - RBOUND;
    double izbound = ZBOUND - RBOUND;
 
-
+   srand(0);
    for (i = 0; i < N; i++) {
       mass[i] = MASS_OF_UNKNOWN * generate_rand();
       radius[i] = RBOUND * generate_rand();
       position[0][i].px = generate_rand() * ixbound;
       position[0][i].py = generate_rand() * iybound;
       position[0][i].pz = generate_rand() * izbound;
+      position[1][i].px = position[1][i].py = position[1][i].pz = 0.0;
       ivelocity[i].vx = generate_rand_ex();
       ivelocity[i].vy = generate_rand_ex();
       ivelocity[i].vz = generate_rand_ex();; 
@@ -739,12 +740,11 @@ void run_simulation(){
    MPI_Bcast(position[pbuffer], N, MPI_POSITION, 0, MPI_COMM_WORLD);
    MPI_Scatter(ivelocity, part_size, MPI_VELOCITY, velocity, part_size, MPI_VELOCITY, 0, MPI_COMM_WORLD);
 
-
    int i;
 
    MPI_Barrier(MPI_COMM_WORLD);
-   double time = MPI_Wtime();
    double allgather_time = 0.0;
+   double time = MPI_Wtime();
    for (i = 0; i < TIME; i++) {
       BH_generate_octtree();
       BH_compute_cell_properties(root_cell);
@@ -811,7 +811,7 @@ int main(int argc, char* argv[]){
 
 
    // Identify processor
-   MPI_Get_processor_name(name, &name_length);
+   //MPI_Get_processor_name(name, &name_length);
    //printf("Rank=%d, Processor=%s, N=%d, TIME=%d\n", rank, name, N, TIME);
 
 
@@ -835,7 +835,6 @@ int main(int argc, char* argv[]){
 
    // Initialize velocity array for each process
    init_velocity();
-
 
    // Let the master initialize the space
    if (rank == 0){
